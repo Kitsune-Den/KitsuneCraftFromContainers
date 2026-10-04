@@ -1,0 +1,6 @@
+# Kitsune Craft From Containers
+#
+# How far (in blocks) a storage box can be from you and still feed crafting.
+# The server uses its own copy of this file to check requests, so keep the
+# server's value at least as large as the clients'.
+range=15
