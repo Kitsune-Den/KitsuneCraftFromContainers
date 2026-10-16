@@ -74,3 +74,14 @@ The project builds against the 3.3 client install at
 `G:\SteamLibrary\steamapps\common\7 Days To Die`. Override with
 `-p:GameDir=...`. The DLL lands in `KitsuneCraftFromContainers\`, which is the
 folder to drop into `Mods`.
+
+Without a game install (CI, or if you don't own the game) it builds against
+`refs/` instead. Those are stripped reference assemblies of the 3.3 client:
+the public API only, with every method body removed, so they hold no game
+code and are never loaded by the game. Regenerate them with
+`bash tools/strip-refs.sh` when the target game version changes. It needs
+`dotnet tool install --global JetBrains.Refasmer.CliTool`.
+
+CI (`.github/workflows/build.yml`) builds every push and pull request to
+`main` against `refs/` and uploads the mod folder as an artifact. Release
+DLLs are still built locally against the real game.
