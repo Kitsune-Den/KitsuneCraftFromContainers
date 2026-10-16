@@ -1,0 +1,31 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # Compiles the mod against the stripped 7D2D 3.3 reference assemblies in
+  # refs/ (the runner has no game install, so the csproj falls back to them).
+  # Windows because the mod targets .NET Framework 4.8.
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Build
+        shell: pwsh
+        run: dotnet build KitsuneCraftFromContainers.csproj --configuration Release -warnaserror
+
+      - name: Upload mod folder
+        uses: actions/upload-artifact@v4
+        with:
+          name: KitsuneCraftFromContainers
+          path: |
+            KitsuneCraftFromContainers/
+            !KitsuneCraftFromContainers/*.pdb

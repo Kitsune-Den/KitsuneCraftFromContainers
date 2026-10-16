@@ -17,6 +17,18 @@
          -p:GameDir=... to build against another install. -->
     <GameDir Condition="'$(GameDir)' == ''">G:\SteamLibrary\steamapps\common\7 Days To Die</GameDir>
     <ManagedDir>$(GameDir)\7DaysToDie_Data\Managed</ManagedDir>
+    <HarmonyDir>$(GameDir)\Mods\0_TFP_Harmony</HarmonyDir>
+    <!-- Otherwise refs/*.dll become project items, and reference resolution
+         checks those before HintPath, so they'd win over the real game. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);refs\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- No game install here (CI, or a contributor without the game): build
+       against the stripped reference assemblies in refs/ instead. They hold
+       the API only, no game code; tools/strip-refs.sh regenerates them. -->
+  <PropertyGroup Condition="!Exists('$(ManagedDir)\Assembly-CSharp.dll')">
+    <ManagedDir>$(MSBuildThisFileDirectory)refs</ManagedDir>
+    <HarmonyDir>$(MSBuildThisFileDirectory)refs</HarmonyDir>
   </PropertyGroup>
 
   <ItemGroup>
@@ -37,7 +49,7 @@
       <Private>false</Private>
     </Reference>
     <Reference Include="0Harmony">
-      <HintPath>$(GameDir)\Mods\0_TFP_Harmony\0Harmony.dll</HintPath>
+      <HintPath>$(HarmonyDir)\0Harmony.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>

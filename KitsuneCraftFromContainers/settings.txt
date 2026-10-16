@@ -1,6 +1,21 @@
 # Kitsune Craft From Containers
 #
-# How far (in blocks) a storage box can be from you and still feed crafting.
-# The server uses its own copy of this file to check requests, so keep the
-# server's value at least as large as the clients'.
-range=15
+# On a server, the server's copy of this file decides: clients use the
+# smaller range and only the sources both sides turn on.
+
+# How far (in blocks) a container can be from you and still feed crafting (1-64).
+range=30
+
+# Output slots of forges, campfires, workbenches, chem stations and cement
+# mixers. Never their input, fuel or tool slots.
+workstations=true
+
+# Output slots of apiaries, chicken coops and dew collectors.
+collectors=true
+
+# World containers (a POI's cabinets, fridges, desks...) inside a land claim
+# you own or are allied to. Player-placed storage always counts.
+claimed=true
+
+# Vehicle and drone storage that isn't locked against you.
+vehicles=true
