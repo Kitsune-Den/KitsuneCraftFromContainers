@@ -85,3 +85,7 @@ code and are never loaded by the game. Regenerate them with
 CI (`.github/workflows/build.yml`) builds every push and pull request to
 `main` against `refs/` and uploads the mod folder as an artifact. Release
 DLLs are still built locally against the real game.
+
+## License
+
+[CC BY-NC-SA 4.0](LICENSE), with an extra permission for servers that make money: see [NOTICE.md](NOTICE.md). In short: play it, change it and share it, with credit, not for sale, and with changed versions under the same license.
