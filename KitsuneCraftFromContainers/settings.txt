@@ -41,3 +41,10 @@ party=false
 # Storage, workstations and collectors count only inside a land claim you own
 # or are allied to, even ones you placed. Vehicles and drones aren't affected.
 claimonly=false
+
+# Repair on the land claim block (and kcfc repair) fixes every damaged block
+# on the claim, paying from the containers on it. Server side.
+claimrepair=true
+
+# Allow claim repair during a blood moon.
+claimrepairbloodmoon=false

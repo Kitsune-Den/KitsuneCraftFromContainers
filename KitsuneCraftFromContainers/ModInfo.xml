@@ -2,8 +2,8 @@
 <xml>
 	<Name value="KitsuneCraftFromContainers"/>
 	<DisplayName value="Kitsune Craft From Containers"/>
-	<Version value="0.3.0"/>
-	<Description value="Crafting, repairs, block upgrades, reloading, refueling and trader purchases use materials from nearby storage, workstation and collector output, vehicles and drones, as well as your backpack. Built for 7 Days to Die 3.3. Install on the server and on every client (needs EAC off)."/>
+	<Version value="0.4.0"/>
+	<Description value="Crafting, repairs, block upgrades, reloading, refueling, trader purchases and land claim repair use materials from nearby storage, workstation and collector output, vehicles and drones, as well as your backpack. Built for 7 Days to Die 3.3. Install on the server and on every client (needs EAC off)."/>
 	<Author value="Ada"/>
 	<Website value=""/>
 </xml>

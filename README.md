@@ -67,6 +67,34 @@ Two more settings change who can use what:
 - The container you have open right now.
 - Items with quality or with mods attached.
 
+## Claim repair
+
+Hold E on your land claim block and pick **Repair** (or type `kcfc repair` in
+the F1 console while standing in the claim). The server fixes every damaged
+block on the claim that it can pay for, at the same cost as a hammer, from
+the containers on the claim you can use. Then it tells you how many blocks it
+repaired and what it was short of for the rest, for example:
+
+> Repaired 212 blocks on the claim. 31 blocks still need: 40 Cobblestone
+> Rocks, 12 Forged Iron.
+
+- Only the claim's owner and their allies can start it.
+- It's refused during a blood moon, and stops if one starts, unless
+  `claimrepairbloodmoon` is on.
+- Blocks that broke down to a weaker block (concrete to cobblestone) stay
+  downgraded, as they do with a hammer.
+- It covers the server's real claim size (`LandClaimSize`).
+- `claimrepair=false` on the server turns it off. The game's own version of
+  this, which pays only from the claim block's storage, has no button in 3.3.
+
+## The kcfc command
+
+`kcfc` in the F1 console lists the rules in effect (yours combined with the
+server's) and every container within range, marking which ones count and,
+for the rest, why not: locked, labelled `nocraft`, outside your claim, out of
+range, and so on. Every player can run it. `kcfc repair` repairs the claim
+you're standing in.
+
 ## Multiplayer
 
 The crafter's client never writes a container itself. It asks the server to
