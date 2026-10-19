@@ -14,8 +14,16 @@ Install on the **server and every client**. EAC must be off.
   by default, `settings.txt`).
 - When you craft, it takes from your backpack first, then your toolbelt, then
   the containers.
-- Only the crafting UI sees the containers. Ammo counts, quests, traders,
-  repairs and lockpicks still read your real inventory.
+- Repairs and upgrades use the same containers (`repair` in `settings.txt`):
+  - repairing and upgrading blocks with a stone axe, hammer or nail gun
+  - repairing tools, weapons and armor with repair kits
+  - repairing vehicles and drones from their radial menu
+
+  They take from your toolbelt first, then your backpack, then the
+  containers. A block upgrade can now also use a few from each, where vanilla
+  needs the whole amount in one place.
+- Only crafting and repairs see the containers. Ammo counts, quests, traders
+  and lockpicks still read your real inventory.
 - Crafting windows with their own input grid (the forge) are unchanged.
 
 ## Which containers
@@ -52,7 +60,9 @@ back when they close it.
 The server's `settings.txt` decides. When a client joins, the server sends its
 range and which sources it allows. The client uses the smaller range and only
 the sources both sides turn on, so it never crafts from something the server
-would refuse.
+would refuse. `repair` works the same way, except a server older than 0.3.0
+doesn't send it, and then repairs are on: they ask for items the same way
+crafting does, so any version of the server can serve them.
 
 Vehicles and drones work differently, because the game doesn't keep other
 players' copies of a vehicle's storage up to date. While your crafting window
@@ -61,8 +71,8 @@ range, your client asks the server what's in it about once a second, and
 counts that.
 
 A client with the mod on a server without it just crafts from the backpack.
-A 0.2.0 client on a 0.1.0 server uses player-placed storage only, at its own
-range.
+A 0.2.0 or later client on a 0.1.0 server uses player-placed storage only, at
+its own range.
 
 ## Building
 

@@ -11,12 +11,18 @@ using UnityEngine;
 // 7 Days to Die 3.3, where ITileEntityLootable is gone and a box's contents
 // live in TEFeatureStorage.ItemGrid.
 //
-// Scope. Only the crafting UI sees the containers. XUiM_PlayerInventory's
+// Scope. Only crafting and repairs see the containers. XUiM_PlayerInventory's
 // count / has / remove methods are extended ONLY while one of the crafting
-// entry points below is on the stack (KCFC_Scope), so ammo counts, quests,
-// traders, repairs and lockpicks keep reading the real inventory. Crafting
-// windows with their own input grid (the forge) are left alone: vanilla
-// removes from that grid, never the backpack.
+// entry points below, or item repair, is on the stack (KCFC_Scope), so ammo
+// counts, quests, traders and lockpicks keep reading the real inventory.
+// Crafting windows with their own input grid (the forge) are left alone:
+// vanilla removes from that grid, never the backpack.
+//
+// Block repair and upgrade, and vehicle and drone repair, read the toolbelt
+// (Inventory) and bag directly instead. While one of those is on the stack
+// (KCFC_ToolScope), the local player's toolbelt counts the bag and the
+// containers too, and a toolbelt removal that comes up short takes the rest
+// from the bag, then the containers.
 //
 // Which containers (KCFC_Source), all within `range` blocks (settings.txt):
 //   - Player-placed storage. Skipped: boxes locked against you, slots you
@@ -58,11 +64,12 @@ using UnityEngine;
 // itself: that replaces the bag an open window is editing.
 //
 // The server decides what may be used: on "kcfc_hello" it answers with
-// "kcfc_config range=.. workstations=.. collectors=.. claimed=.. vehicles=.." and then
-// "kcfc_ok". A client uses the smaller range and only the sources both sides
-// allow, so a take the client makes is one the server will accept. A server
-// that answers "kcfc_ok" without a config (0.1.0) gets player-placed storage
-// only, at the client's own range.
+// "kcfc_config range=.. workstations=.. collectors=.. claimed=.. vehicles=.. repair=.."
+// and then "kcfc_ok". A client uses the smaller range and only the sources
+// both sides allow, so a take the client makes is one the server will accept.
+// A server that answers "kcfc_ok" without a config (0.1.0) gets player-placed
+// storage only, at the client's own range. Repairs send the same take lines
+// as crafting, so a server that doesn't mention `repair` allows them.
 //
 // Like KitsuneSharedMagazines, all of this rides vanilla packages (no custom
 // NetPackage IDs), and the kcfc_ lines are swallowed before the console sees
@@ -92,11 +99,14 @@ public class KCFC_Config
     public bool Collectors = true;
     public bool Claimed = true;
     public bool Vehicles = true;
+    // Repairs and upgrades, not a source: they take with the same lines as
+    // crafting, so every server version can serve them.
+    public bool Repair = true;
 
     // What a server without a config line (0.1.0) supports.
     public static KCFC_Config Legacy(int range)
     {
-        return new KCFC_Config { Range = range, Workstations = false, Collectors = false, Claimed = false, Vehicles = false };
+        return new KCFC_Config { Range = range, Workstations = false, Collectors = false, Claimed = false, Vehicles = false, Repair = true };
     }
 
     public KCFC_Config Within(KCFC_Config other)
@@ -108,6 +118,7 @@ public class KCFC_Config
             Collectors = Collectors && other.Collectors,
             Claimed = Claimed && other.Claimed,
             Vehicles = Vehicles && other.Vehicles,
+            Repair = Repair && other.Repair,
         };
     }
 
@@ -131,6 +142,9 @@ public class KCFC_Config
             case "vehicles":
                 Vehicles = ParseBool(value, Vehicles);
                 return true;
+            case "repair":
+                Repair = ParseBool(value, Repair);
+                return true;
         }
         return false;
     }
@@ -138,7 +152,7 @@ public class KCFC_Config
     public string ToLine()
     {
         return "range=" + Range + " workstations=" + (Workstations ? 1 : 0) + " collectors=" + (Collectors ? 1 : 0)
-            + " claimed=" + (Claimed ? 1 : 0) + " vehicles=" + (Vehicles ? 1 : 0);
+            + " claimed=" + (Claimed ? 1 : 0) + " vehicles=" + (Vehicles ? 1 : 0) + " repair=" + (Repair ? 1 : 0);
     }
 
     // Reads the "key=value key=value" part of a kcfc_config line. Unknown
@@ -239,6 +253,37 @@ public static class KCFC_Scope
     public static void Exit(bool entered)
     {
         if (entered && depth > 0) depth--;
+    }
+}
+
+// The toolbelt-and-bag counterpart of KCFC_Scope, for the repairs that skip
+// XUiM_PlayerInventory. Only ever the local player: remote players' repairs
+// run on their own machines.
+public static class KCFC_ToolScope
+{
+    private static int depth;
+    private static EntityPlayerLocal player;
+
+    public static bool Enter(Entity entity)
+    {
+        if (!(entity is EntityPlayerLocal local) || !KCFC_Settings.Effective.Repair) return false;
+        if (local != GameManager.Instance?.World?.GetPrimaryPlayer()) return false;
+        if (depth > 0 && local != player) return false;
+        player = local;
+        depth++;
+        return true;
+    }
+
+    public static void Exit(bool entered)
+    {
+        if (!entered || depth <= 0) return;
+        if (--depth == 0) player = null;
+    }
+
+    // The player whose toolbelt this is, if it is extended right now.
+    public static EntityPlayerLocal Owner(Inventory toolbelt)
+    {
+        return depth > 0 && player != null && ReferenceEquals(player.inventory, toolbelt) ? player : null;
     }
 }
 
@@ -1402,5 +1447,119 @@ public class KCFC_RemoveItemsPatch
         __instance.dispatchBackpackItemsChanged();
         __instance.dispatchToolbeltItemsChanged();
         return false;
+    }
+}
+
+// ---- Repairs and upgrades ----
+
+// Repairing a tool, weapon or armor piece with a repair kit. It counts and
+// removes the kits through XUiM_PlayerInventory, like a craft.
+[HarmonyPatch(typeof(ItemActionEntryRepair))]
+public class KCFC_ItemRepairScope
+{
+    public static IEnumerable<MethodBase> TargetMethods()
+    {
+        yield return AccessTools.Method(typeof(ItemActionEntryRepair), "RefreshEnabled");
+        yield return AccessTools.Method(typeof(ItemActionEntryRepair), "OnActivated");
+    }
+
+    public static void Prefix(out bool __state)
+    {
+        __state = KCFC_Settings.Effective.Repair && KCFC_Scope.EnterAlways();
+    }
+
+    public static void Finalizer(bool __state) => KCFC_Scope.Exit(__state);
+}
+
+// Block repair and upgrade (stone axe, hammer, nail gun). The first argument
+// of each is the holding entity's inventory data.
+[HarmonyPatch(typeof(ItemActionRepair))]
+public class KCFC_BlockRepairScope
+{
+    public static IEnumerable<MethodBase> TargetMethods()
+    {
+        yield return AccessTools.Method(typeof(ItemActionRepair), "canRemoveRequiredItem");
+        yield return AccessTools.Method(typeof(ItemActionRepair), "removeRequiredItem");
+        yield return AccessTools.Method(typeof(ItemActionRepair), "CanRemoveRequiredResource");
+        yield return AccessTools.Method(typeof(ItemActionRepair), "RemoveRequiredResource");
+    }
+
+    public static void Prefix(object[] __args, out bool __state)
+    {
+        __state = KCFC_ToolScope.Enter((__args[0] as ItemInventoryData)?.holdingEntity);
+    }
+
+    public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
+}
+
+// The vehicle radial's repair, which uses one repair kit.
+[HarmonyPatch(typeof(XUiM_Vehicle))]
+[HarmonyPatch("RepairVehicle")]
+public class KCFC_VehicleRepairScope
+{
+    public static void Prefix(XUi _xui, out bool __state)
+    {
+        __state = KCFC_ToolScope.Enter(_xui?.playerUI?.entityPlayer);
+    }
+
+    public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
+}
+
+// The drone radial's repair, which uses one repair kit.
+[HarmonyPatch(typeof(EntityDrone))]
+[HarmonyPatch("DoRepairAction")]
+public class KCFC_DroneRepairScope
+{
+    public static void Prefix(LocalPlayerUI playerUI, out bool __state)
+    {
+        __state = KCFC_ToolScope.Enter(playerUI?.entityPlayer);
+    }
+
+    public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
+}
+
+// In tool scope the toolbelt's count includes the bag and the containers.
+// Vanilla checks the toolbelt and the bag separately, so this also lets a
+// repair use a few from each.
+[HarmonyPatch(typeof(Inventory))]
+[HarmonyPatch("GetItemCount", new[] { typeof(ItemValue), typeof(bool), typeof(int), typeof(int), typeof(bool) })]
+public class KCFC_ToolbeltCountPatch
+{
+    public static void Postfix(Inventory __instance, ItemValue _itemValue, bool _ignoreModdedItems, ref int __result)
+    {
+        EntityPlayerLocal player = KCFC_ToolScope.Owner(__instance);
+        if (player == null || _itemValue == null) return;
+        __result += player.bag.GetItemCount(_itemValue, -1, -1, _ignoreModdedItems);
+        if (!_itemValue.HasQuality) __result += KCFC_Containers.Count(_itemValue.type);
+    }
+}
+
+// In tool scope a toolbelt removal that comes up short takes the rest from
+// the bag, then the containers, and reports the whole amount, so vanilla's
+// "toolbelt removed it all" branch is the one that runs.
+[HarmonyPatch(typeof(Inventory))]
+[HarmonyPatch("DecItem")]
+public class KCFC_ToolbeltDecItemPatch
+{
+    public static void Postfix(Inventory __instance, ItemValue _itemValue, int _count, bool _ignoreModdedItems,
+        IList<ItemStack> _removedItems, ref int __result)
+    {
+        EntityPlayerLocal player = KCFC_ToolScope.Owner(__instance);
+        int rest = _count - __result;
+        if (player == null || _itemValue == null || rest <= 0) return;
+
+        // Not enough anywhere (the containers changed since the check): take
+        // nothing more and let vanilla fall back to the bag on its own.
+        int nearby = _itemValue.HasQuality ? 0 : KCFC_Containers.Count(_itemValue.type);
+        if (player.bag.GetItemCount(_itemValue, -1, -1, _ignoreModdedItems) + nearby < rest) return;
+
+        rest -= player.bag.DecItem(_itemValue, rest, _ignoreModdedItems, _removedItems);
+        if (rest > 0 && nearby > 0)
+        {
+            int got = KCFC_Containers.Take(_itemValue, rest);
+            if (got > 0) _removedItems?.Add(new ItemStack(_itemValue.Clone(), got));
+            rest -= got;
+        }
+        __result = _count - rest;
     }
 }

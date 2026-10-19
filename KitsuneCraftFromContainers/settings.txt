@@ -19,3 +19,7 @@ claimed=true
 
 # Vehicle and drone storage that isn't locked against you.
 vehicles=true
+
+# Repairing and upgrading blocks, and repairing tools, weapons, armor,
+# vehicles and drones, use the same containers as crafting.
+repair=true
