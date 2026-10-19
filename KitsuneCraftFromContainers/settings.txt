@@ -19,3 +19,25 @@ claimed=true
 
 # Vehicle and drone storage that isn't locked against you.
 vehicles=true
+
+# Repairing and upgrading blocks, and repairing tools, weapons, armor,
+# vehicles and drones, use the same containers as crafting.
+repair=true
+
+# Reloading guns, bows and launchers. Also counts toward the ammo shown on
+# the HUD and in the ammo radial.
+reload=true
+
+# Refueling vehicles from the radial menu.
+refuel=true
+
+# Paying traders and other players' vending machines.
+trader=true
+
+# Storage, vehicles and drones locked against you count anyway when their
+# owner is in your party.
+party=false
+
+# Storage, workstations and collectors count only inside a land claim you own
+# or are allied to, even ones you placed. Vehicles and drones aren't affected.
+claimonly=false

@@ -1,7 +1,8 @@
 # Kitsune Craft From Containers
 
-Crafting uses ingredients from containers near you, as well as your backpack
-and toolbelt. Built for **7 Days to Die 3.3**, which removed the
+Crafting, repairs, upgrades, reloading, refueling and trader purchases use
+materials from containers near you, as well as your backpack and toolbelt. Built for
+**7 Days to Die 3.3**, which removed the
 `ITileEntityLootable` interface that older craft-from-containers mods were
 compiled against.
 
@@ -14,8 +15,23 @@ Install on the **server and every client**. EAC must be off.
   by default, `settings.txt`).
 - When you craft, it takes from your backpack first, then your toolbelt, then
   the containers.
-- Only the crafting UI sees the containers. Ammo counts, quests, traders,
-  repairs and lockpicks still read your real inventory.
+- Each of these uses the same containers too, and has its own setting in
+  `settings.txt`:
+
+  | What | Setting | Takes from |
+  |---|---|---|
+  | Repairing and upgrading blocks with a stone axe, hammer or nail gun | `repair` | toolbelt, backpack, containers |
+  | Repairing tools, weapons and armor with repair kits | `repair` | backpack, toolbelt, containers |
+  | Repairing vehicles and drones from their radial menu | `repair` | toolbelt, backpack, containers |
+  | Reloading guns, bows and launchers | `reload` | backpack, toolbelt, containers |
+  | Refueling vehicles from their radial menu | `refuel` | toolbelt, backpack, containers |
+  | Paying traders and other players' vending machines | `trader` | backpack, toolbelt, containers |
+
+  A block upgrade can now use a few materials from each place, where vanilla
+  needs the whole amount in one. The HUD's reserve ammo count and the ammo
+  radial include ammo in containers. The dukes shown in your backpack are
+  still only the ones you carry.
+- Quests, selling and lockpicks still read only your real inventory.
 - Crafting windows with their own input grid (the forge) are unchanged.
 
 ## Which containers
@@ -31,9 +47,18 @@ storage:
 | Collectors | Output slots of apiaries, chicken coops and dew collectors | `collectors` |
 | Vehicles and drones | Their storage, unless it is locked and you aren't the owner or on its allowed list | `vehicles` |
 
+Two more settings change who can use what:
+
+- `party` (off by default): storage, vehicles and drones locked against you
+  count anyway when their owner is in your party.
+- `claimonly` (off by default): storage, workstations and collectors count
+  only inside a land claim you own or are allied to, even ones you placed.
+  Vehicles and drones aren't affected; switch them off with `vehicles`.
+
 ## What it won't touch
 
-- Storage, vehicles and drones locked against you.
+- Storage, vehicles and drones locked against you (unless `party` is on and
+  the owner is in your party).
 - Slots you locked inside a box.
 - Storage whose label contains `nocraft`.
 - World loot outside your claim, loot nobody has opened yet, and anything
@@ -52,7 +77,13 @@ back when they close it.
 The server's `settings.txt` decides. When a client joins, the server sends its
 range and which sources it allows. The client uses the smaller range and only
 the sources both sides turn on, so it never crafts from something the server
-would refuse.
+would refuse. `party` works the same way. `claimonly` applies if either side
+turns it on.
+
+`repair`, `reload`, `refuel` and `trader` are also the server's call, except a
+server older than 0.3.0 doesn't send them, and then they are on: they ask for
+items the same way crafting does, so any version of the server can serve
+them.
 
 Vehicles and drones work differently, because the game doesn't keep other
 players' copies of a vehicle's storage up to date. While your crafting window
@@ -61,8 +92,8 @@ range, your client asks the server what's in it about once a second, and
 counts that.
 
 A client with the mod on a server without it just crafts from the backpack.
-A 0.2.0 client on a 0.1.0 server uses player-placed storage only, at its own
-range.
+A 0.2.0 or later client on a 0.1.0 server uses player-placed storage only, at
+its own range.
 
 ## Building
 
