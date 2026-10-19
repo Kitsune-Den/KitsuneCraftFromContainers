@@ -1,7 +1,8 @@
 # Kitsune Craft From Containers
 
-Crafting uses ingredients from containers near you, as well as your backpack
-and toolbelt. Built for **7 Days to Die 3.3**, which removed the
+Crafting, repairs, upgrades, reloading and refueling use materials from
+containers near you, as well as your backpack and toolbelt. Built for
+**7 Days to Die 3.3**, which removed the
 `ITileEntityLootable` interface that older craft-from-containers mods were
 compiled against.
 
@@ -14,16 +15,21 @@ Install on the **server and every client**. EAC must be off.
   by default, `settings.txt`).
 - When you craft, it takes from your backpack first, then your toolbelt, then
   the containers.
-- Repairs and upgrades use the same containers (`repair` in `settings.txt`):
-  - repairing and upgrading blocks with a stone axe, hammer or nail gun
-  - repairing tools, weapons and armor with repair kits
-  - repairing vehicles and drones from their radial menu
+- Each of these uses the same containers too, and has its own setting in
+  `settings.txt`:
 
-  They take from your toolbelt first, then your backpack, then the
-  containers. A block upgrade can now also use a few from each, where vanilla
-  needs the whole amount in one place.
-- Only crafting and repairs see the containers. Ammo counts, quests, traders
-  and lockpicks still read your real inventory.
+  | What | Setting | Takes from |
+  |---|---|---|
+  | Repairing and upgrading blocks with a stone axe, hammer or nail gun | `repair` | toolbelt, backpack, containers |
+  | Repairing tools, weapons and armor with repair kits | `repair` | backpack, toolbelt, containers |
+  | Repairing vehicles and drones from their radial menu | `repair` | toolbelt, backpack, containers |
+  | Reloading guns, bows and launchers | `reload` | backpack, toolbelt, containers |
+  | Refueling vehicles from their radial menu | `refuel` | toolbelt, backpack, containers |
+
+  A block upgrade can now use a few materials from each place, where vanilla
+  needs the whole amount in one. The HUD's reserve ammo count and the ammo
+  radial include ammo in containers.
+- Quests, traders and lockpicks still read only your real inventory.
 - Crafting windows with their own input grid (the forge) are unchanged.
 
 ## Which containers
@@ -60,9 +66,9 @@ back when they close it.
 The server's `settings.txt` decides. When a client joins, the server sends its
 range and which sources it allows. The client uses the smaller range and only
 the sources both sides turn on, so it never crafts from something the server
-would refuse. `repair` works the same way, except a server older than 0.3.0
-doesn't send it, and then repairs are on: they ask for items the same way
-crafting does, so any version of the server can serve them.
+would refuse. `repair`, `reload` and `refuel` work the same way, except a server older
+than 0.3.0 doesn't send them, and then they are on: they ask for items the
+same way crafting does, so any version of the server can serve them.
 
 Vehicles and drones work differently, because the game doesn't keep other
 players' copies of a vehicle's storage up to date. While your crafting window

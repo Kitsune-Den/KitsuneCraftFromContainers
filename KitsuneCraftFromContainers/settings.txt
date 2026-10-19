@@ -23,3 +23,10 @@ vehicles=true
 # Repairing and upgrading blocks, and repairing tools, weapons, armor,
 # vehicles and drones, use the same containers as crafting.
 repair=true
+
+# Reloading guns, bows and launchers. Also counts toward the ammo shown on
+# the HUD and in the ammo radial.
+reload=true
+
+# Refueling vehicles from the radial menu.
+refuel=true

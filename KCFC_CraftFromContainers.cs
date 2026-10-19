@@ -11,18 +11,19 @@ using UnityEngine;
 // 7 Days to Die 3.3, where ITileEntityLootable is gone and a box's contents
 // live in TEFeatureStorage.ItemGrid.
 //
-// Scope. Only crafting and repairs see the containers. XUiM_PlayerInventory's
-// count / has / remove methods are extended ONLY while one of the crafting
-// entry points below, or item repair, is on the stack (KCFC_Scope), so ammo
-// counts, quests, traders and lockpicks keep reading the real inventory.
-// Crafting windows with their own input grid (the forge) are left alone:
-// vanilla removes from that grid, never the backpack.
+// Scope. Only crafting, repairs, reloading and refueling see the containers.
+// XUiM_PlayerInventory's count / has / remove methods are extended ONLY while
+// one of the crafting entry points below, item repair or the ammo radial is
+// on the stack (KCFC_Scope), so quests, traders and lockpicks keep reading
+// the real inventory. Crafting windows with their own input grid (the forge)
+// are left alone: vanilla removes from that grid, never the backpack.
 //
-// Block repair and upgrade, and vehicle and drone repair, read the toolbelt
-// (Inventory) and bag directly instead. While one of those is on the stack
-// (KCFC_ToolScope), the local player's toolbelt counts the bag and the
-// containers too, and a toolbelt removal that comes up short takes the rest
-// from the bag, then the containers.
+// Block repair and upgrade, vehicle and drone repair, reloading and
+// refueling read the toolbelt (Inventory) and bag directly instead. While
+// one of those is on the stack (KCFC_ToolScope), the local player's toolbelt
+// counts the containers too (and the bag, where vanilla checks it on its
+// own), and a toolbelt removal that comes up short takes the rest from the
+// bag, then the containers.
 //
 // Which containers (KCFC_Source), all within `range` blocks (settings.txt):
 //   - Player-placed storage. Skipped: boxes locked against you, slots you
@@ -64,12 +65,13 @@ using UnityEngine;
 // itself: that replaces the bag an open window is editing.
 //
 // The server decides what may be used: on "kcfc_hello" it answers with
-// "kcfc_config range=.. workstations=.. collectors=.. claimed=.. vehicles=.. repair=.."
-// and then "kcfc_ok". A client uses the smaller range and only the sources
-// both sides allow, so a take the client makes is one the server will accept.
-// A server that answers "kcfc_ok" without a config (0.1.0) gets player-placed
-// storage only, at the client's own range. Repairs send the same take lines
-// as crafting, so a server that doesn't mention `repair` allows them.
+// "kcfc_config range=.. workstations=.. collectors=.. claimed=.. vehicles=..
+// repair=.. reload=.. refuel=.." and then "kcfc_ok". A client uses the smaller
+// range and only the sources both sides allow, so a take the client makes is
+// one the server will accept. A server that answers "kcfc_ok" without a
+// config (0.1.0) gets player-placed storage only, at the client's own range.
+// Repairs, reloads and refuels send the same take lines as crafting, so a
+// server that doesn't mention them allows them.
 //
 // Like KitsuneSharedMagazines, all of this rides vanilla packages (no custom
 // NetPackage IDs), and the kcfc_ lines are swallowed before the console sees
@@ -99,14 +101,18 @@ public class KCFC_Config
     public bool Collectors = true;
     public bool Claimed = true;
     public bool Vehicles = true;
-    // Repairs and upgrades, not a source: they take with the same lines as
-    // crafting, so every server version can serve them.
+    // Not sources but uses: repairs and upgrades, reloading, refueling. They
+    // take with the same lines as crafting, so every server version can
+    // serve them.
     public bool Repair = true;
+    public bool Reload = true;
+    public bool Refuel = true;
 
     // What a server without a config line (0.1.0) supports.
     public static KCFC_Config Legacy(int range)
     {
-        return new KCFC_Config { Range = range, Workstations = false, Collectors = false, Claimed = false, Vehicles = false, Repair = true };
+        return new KCFC_Config { Range = range, Workstations = false, Collectors = false, Claimed = false, Vehicles = false,
+            Repair = true, Reload = true, Refuel = true };
     }
 
     public KCFC_Config Within(KCFC_Config other)
@@ -119,6 +125,8 @@ public class KCFC_Config
             Claimed = Claimed && other.Claimed,
             Vehicles = Vehicles && other.Vehicles,
             Repair = Repair && other.Repair,
+            Reload = Reload && other.Reload,
+            Refuel = Refuel && other.Refuel,
         };
     }
 
@@ -145,6 +153,12 @@ public class KCFC_Config
             case "repair":
                 Repair = ParseBool(value, Repair);
                 return true;
+            case "reload":
+                Reload = ParseBool(value, Reload);
+                return true;
+            case "refuel":
+                Refuel = ParseBool(value, Refuel);
+                return true;
         }
         return false;
     }
@@ -152,7 +166,8 @@ public class KCFC_Config
     public string ToLine()
     {
         return "range=" + Range + " workstations=" + (Workstations ? 1 : 0) + " collectors=" + (Collectors ? 1 : 0)
-            + " claimed=" + (Claimed ? 1 : 0) + " vehicles=" + (Vehicles ? 1 : 0) + " repair=" + (Repair ? 1 : 0);
+            + " claimed=" + (Claimed ? 1 : 0) + " vehicles=" + (Vehicles ? 1 : 0) + " repair=" + (Repair ? 1 : 0)
+            + " reload=" + (Reload ? 1 : 0) + " refuel=" + (Refuel ? 1 : 0);
     }
 
     // Reads the "key=value key=value" part of a kcfc_config line. Unknown
@@ -256,20 +271,48 @@ public static class KCFC_Scope
     }
 }
 
-// The toolbelt-and-bag counterpart of KCFC_Scope, for the repairs that skip
-// XUiM_PlayerInventory. Only ever the local player: remote players' repairs
-// run on their own machines.
+// The toolbelt-and-bag counterpart of KCFC_Scope, for the repairs, reloads
+// and refuels that skip XUiM_PlayerInventory. Only ever the local player:
+// remote players' run on their own machines.
 public static class KCFC_ToolScope
 {
     private static int depth;
     private static EntityPlayerLocal player;
 
-    public static bool Enter(Entity entity)
+    // The toolbelt's count includes the bag, and a short removal takes from
+    // the bag before the containers. Off where vanilla adds the bag itself.
+    public static bool WithBag { get; private set; }
+
+    // A removal the bag and containers can't fully cover takes nothing more.
+    public static bool AllOrNothing { get; private set; }
+
+    // Repairs check the toolbelt and bag separately and need the whole amount.
+    public static bool EnterRepair(Entity entity) => Enter(entity, KCFC_Settings.Effective.Repair, true, true);
+
+    // Refuel checks the toolbelt, then the bag only if it got nothing; a
+    // partial fill is fine.
+    public static bool EnterRefuel(Entity entity) => Enter(entity, KCFC_Settings.Effective.Refuel, true, false);
+
+    // Reload adds the bag and toolbelt itself; a partial reload is fine.
+    public static bool EnterReload(Entity entity) => Enter(entity, KCFC_Settings.Effective.Reload, false, false);
+
+    public static bool IsLocalPlayer(Entity entity)
     {
-        if (!(entity is EntityPlayerLocal local) || !KCFC_Settings.Effective.Repair) return false;
-        if (local != GameManager.Instance?.World?.GetPrimaryPlayer()) return false;
+        return entity is EntityPlayerLocal local && local == GameManager.Instance?.World?.GetPrimaryPlayer();
+    }
+
+    // A nested scope keeps the outer one's rules.
+    private static bool Enter(Entity entity, bool enabled, bool withBag, bool allOrNothing)
+    {
+        if (!enabled || !IsLocalPlayer(entity)) return false;
+        EntityPlayerLocal local = (EntityPlayerLocal)entity;
         if (depth > 0 && local != player) return false;
-        player = local;
+        if (depth == 0)
+        {
+            player = local;
+            WithBag = withBag;
+            AllOrNothing = allOrNothing;
+        }
         depth++;
         return true;
     }
@@ -278,6 +321,32 @@ public static class KCFC_ToolScope
     {
         if (!entered || depth <= 0) return;
         if (--depth == 0) player = null;
+    }
+
+    public struct Saved
+    {
+        public int Depth;
+        public EntityPlayerLocal Player;
+        public bool WithBag;
+        public bool AllOrNothing;
+    }
+
+    // For a step inside a scope that must see the real toolbelt. Anything
+    // that enters a scope meanwhile (a HUD refresh) starts from scratch.
+    public static Saved Suspend()
+    {
+        Saved saved = new Saved { Depth = depth, Player = player, WithBag = WithBag, AllOrNothing = AllOrNothing };
+        depth = 0;
+        player = null;
+        return saved;
+    }
+
+    public static void Resume(Saved saved)
+    {
+        depth = saved.Depth;
+        player = saved.Player;
+        WithBag = saved.WithBag;
+        AllOrNothing = saved.AllOrNothing;
     }
 
     // The player whose toolbelt this is, if it is extended right now.
@@ -1486,7 +1555,7 @@ public class KCFC_BlockRepairScope
 
     public static void Prefix(object[] __args, out bool __state)
     {
-        __state = KCFC_ToolScope.Enter((__args[0] as ItemInventoryData)?.holdingEntity);
+        __state = KCFC_ToolScope.EnterRepair((__args[0] as ItemInventoryData)?.holdingEntity);
     }
 
     public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
@@ -1499,7 +1568,7 @@ public class KCFC_VehicleRepairScope
 {
     public static void Prefix(XUi _xui, out bool __state)
     {
-        __state = KCFC_ToolScope.Enter(_xui?.playerUI?.entityPlayer);
+        __state = KCFC_ToolScope.EnterRepair(_xui?.playerUI?.entityPlayer);
     }
 
     public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
@@ -1512,15 +1581,117 @@ public class KCFC_DroneRepairScope
 {
     public static void Prefix(LocalPlayerUI playerUI, out bool __state)
     {
-        __state = KCFC_ToolScope.Enter(playerUI?.entityPlayer);
+        __state = KCFC_ToolScope.EnterRepair(playerUI?.entityPlayer);
     }
 
     public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
 }
 
-// In tool scope the toolbelt's count includes the bag and the containers.
-// Vanilla checks the toolbelt and the bag separately, so this also lets a
-// repair use a few from each.
+// ---- Reloading ----
+
+// Guns, bows and launchers (ItemActionRanged and its subclasses). Each of
+// these reads the holder's toolbelt directly; the first argument is either
+// the holder or the action data.
+[HarmonyPatch]
+public class KCFC_ReloadScope
+{
+    public static IEnumerable<MethodBase> TargetMethods()
+    {
+        Type ranged = typeof(ItemActionRanged);
+        yield return AccessTools.Method(ranged, "CanReload");
+        yield return AccessTools.Method(ranged, "CompleteReload");
+        yield return AccessTools.Method(ranged, "GetReloadFlags",
+            new[] { typeof(ItemValue), typeof(EntityAlive), typeof(ItemActionRanged.ItemActionDataRanged) });
+        yield return AccessTools.Method(ranged, "CycleAmmoType");
+        yield return AccessTools.Method(ranged, "SwapAmmoType");
+        // How many projectiles a launcher shows loaded.
+        yield return AccessTools.Method(typeof(AnimatorRangedReloadState), "GetAmmoCount");
+    }
+
+    public static void Prefix(MethodBase __originalMethod, object[] __args, out bool __state)
+    {
+        object first = __originalMethod.Name == "GetReloadFlags" ? __args[1] : __args[0];
+        Entity holder = first is ItemActionData data ? data.invData?.holdingEntity : first as Entity;
+        __state = KCFC_ToolScope.EnterReload(holder);
+    }
+
+    public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
+}
+
+// Unloading on an ammo swap decides between bag and toolbelt by where that
+// ammo already is; containers mustn't make the toolbelt look like the place.
+[HarmonyPatch(typeof(ItemActionRanged))]
+[HarmonyPatch("removeCurrentlyLoadedAmmunition")]
+public class KCFC_UnloadPause
+{
+    public static void Prefix(out KCFC_ToolScope.Saved __state) => __state = KCFC_ToolScope.Suspend();
+
+    public static void Finalizer(KCFC_ToolScope.Saved __state) => KCFC_ToolScope.Resume(__state);
+}
+
+// The reserve ammo count next to the magazine on the HUD. It can refresh in
+// the middle of a repair (the toolbelt changed), so it sets the outer scope
+// aside rather than counting by a repair's rules.
+[HarmonyPatch(typeof(XUiC_HUDStatBar))]
+[HarmonyPatch("updateActiveItemAmmo")]
+public class KCFC_HudAmmoScope
+{
+    public static void Prefix(EntityPlayerLocal ___localPlayer, out KCFC_ToolScope.Saved __state)
+    {
+        __state = KCFC_ToolScope.Suspend();
+        KCFC_ToolScope.EnterReload(___localPlayer);
+    }
+
+    public static void Finalizer(KCFC_ToolScope.Saved __state) => KCFC_ToolScope.Resume(__state);
+}
+
+// The ammo type radial (hold reload). It counts through XUiM_PlayerInventory.
+[HarmonyPatch(typeof(ItemActionAttack))]
+[HarmonyPatch("SetupRadial")]
+public class KCFC_AmmoRadialScope
+{
+    public static void Prefix(out bool __state)
+    {
+        __state = KCFC_Settings.Effective.Reload && KCFC_Scope.EnterAlways();
+    }
+
+    public static void Finalizer(bool __state) => KCFC_Scope.Exit(__state);
+}
+
+// ---- Refueling ----
+
+// Whether the vehicle radial offers "refuel". Vanilla looks for a fuel stack
+// in the bag or toolbelt slot by slot, so this one adds the containers here.
+[HarmonyPatch(typeof(EntityVehicle))]
+[HarmonyPatch("hasGasCan")]
+public class KCFC_HasFuelPatch
+{
+    public static void Postfix(EntityVehicle __instance, EntityAlive _ea, ref bool __result)
+    {
+        if (__result || !KCFC_Settings.Effective.Refuel || !KCFC_ToolScope.IsLocalPlayer(_ea)) return;
+        string fuelItem = __instance.GetVehicle()?.GetFuelItem();
+        if (string.IsNullOrEmpty(fuelItem)) return;
+        ItemValue fuel = ItemClass.GetItem(fuelItem);
+        if (fuel != null && fuel.type > 0 && !fuel.HasQuality) __result = KCFC_Containers.Count(fuel.type) > 0;
+    }
+}
+
+[HarmonyPatch(typeof(EntityVehicle))]
+[HarmonyPatch("takeFuel")]
+public class KCFC_RefuelScope
+{
+    public static void Prefix(EntityAlive _entityFocusing, out bool __state)
+    {
+        __state = KCFC_ToolScope.EnterRefuel(_entityFocusing);
+    }
+
+    public static void Finalizer(bool __state) => KCFC_ToolScope.Exit(__state);
+}
+
+// ---- The toolbelt, extended in tool scope ----
+
+// The toolbelt's count includes the containers, and the bag too where vanilla
+// checks the toolbelt and bag separately (so a repair can use a few from each).
 [HarmonyPatch(typeof(Inventory))]
 [HarmonyPatch("GetItemCount", new[] { typeof(ItemValue), typeof(bool), typeof(int), typeof(int), typeof(bool) })]
 public class KCFC_ToolbeltCountPatch
@@ -1529,14 +1700,14 @@ public class KCFC_ToolbeltCountPatch
     {
         EntityPlayerLocal player = KCFC_ToolScope.Owner(__instance);
         if (player == null || _itemValue == null) return;
-        __result += player.bag.GetItemCount(_itemValue, -1, -1, _ignoreModdedItems);
+        if (KCFC_ToolScope.WithBag) __result += player.bag.GetItemCount(_itemValue, -1, -1, _ignoreModdedItems);
         if (!_itemValue.HasQuality) __result += KCFC_Containers.Count(_itemValue.type);
     }
 }
 
-// In tool scope a toolbelt removal that comes up short takes the rest from
-// the bag, then the containers, and reports the whole amount, so vanilla's
-// "toolbelt removed it all" branch is the one that runs.
+// A toolbelt removal that comes up short takes the rest from the bag (where
+// the scope counts it), then the containers, and reports the whole amount,
+// so vanilla's "toolbelt removed it all" branch is the one that runs.
 [HarmonyPatch(typeof(Inventory))]
 [HarmonyPatch("DecItem")]
 public class KCFC_ToolbeltDecItemPatch
@@ -1548,12 +1719,13 @@ public class KCFC_ToolbeltDecItemPatch
         int rest = _count - __result;
         if (player == null || _itemValue == null || rest <= 0) return;
 
+        int inBag = KCFC_ToolScope.WithBag ? player.bag.GetItemCount(_itemValue, -1, -1, _ignoreModdedItems) : 0;
+        int nearby = _itemValue.HasQuality ? 0 : KCFC_Containers.Count(_itemValue.type);
         // Not enough anywhere (the containers changed since the check): take
         // nothing more and let vanilla fall back to the bag on its own.
-        int nearby = _itemValue.HasQuality ? 0 : KCFC_Containers.Count(_itemValue.type);
-        if (player.bag.GetItemCount(_itemValue, -1, -1, _ignoreModdedItems) + nearby < rest) return;
+        if (KCFC_ToolScope.AllOrNothing && inBag + nearby < rest) return;
 
-        rest -= player.bag.DecItem(_itemValue, rest, _ignoreModdedItems, _removedItems);
+        if (inBag > 0) rest -= player.bag.DecItem(_itemValue, rest, _ignoreModdedItems, _removedItems);
         if (rest > 0 && nearby > 0)
         {
             int got = KCFC_Containers.Take(_itemValue, rest);
