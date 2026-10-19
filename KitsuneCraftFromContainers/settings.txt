@@ -30,3 +30,14 @@ reload=true
 
 # Refueling vehicles from the radial menu.
 refuel=true
+
+# Paying traders and other players' vending machines.
+trader=true
+
+# Storage, vehicles and drones locked against you count anyway when their
+# owner is in your party.
+party=false
+
+# Storage, workstations and collectors count only inside a land claim you own
+# or are allied to, even ones you placed. Vehicles and drones aren't affected.
+claimonly=false
