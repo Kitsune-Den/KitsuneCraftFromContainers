@@ -68,7 +68,7 @@ public static class KCFC_Net
             NetPackageManager.GetPackage<NetPackageConsoleCmdServer>().Setup(source.TakeLine(itemType, count)));
     }
 
-    private static void SendLine(ClientInfo client, string line)
+    public static void SendLine(ClientInfo client, string line)
     {
         client.SendPackage(NetPackageManager.GetPackage<NetPackageConsoleCmdClient>().Setup(line, true));
     }
@@ -196,6 +196,11 @@ public static class KCFC_Net
                 KCFC_Containers.Invalidate();
                 world.GetPrimaryPlayer()?.PlayerUI?.xui?.PlayerInventory?.dispatchBackpackItemsChanged();
             }
+            return true;
+        }
+        if (line.StartsWith(KCFC_ClaimRepair.ReplyVerb + " ", StringComparison.Ordinal))
+        {
+            KCFC_ClaimRepair.OnReply(world, line);
             return true;
         }
         if (!IsTake(line)) return false;

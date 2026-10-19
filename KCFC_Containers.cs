@@ -182,24 +182,82 @@ public static class KCFC_Containers
         Vector3i at = World.worldToBlockPos(from);
         PlatformUserIdentifierAbs user = PlatformManager.InternalLocalUserIdentifier;
 
-        for (int cx = World.toChunkXZ(at.x - range); cx <= World.toChunkXZ(at.x + range); cx++)
+        scratch.Clear();
+        BlockSourcesIn(world, at.x - range, at.z - range, at.x + range, at.z + range, scratch);
+        foreach (KCFC_Source source in scratch)
         {
-            for (int cz = World.toChunkXZ(at.z - range); cz <= World.toChunkXZ(at.z + range); cz++)
+            // The container open in front of you is yours to manage by hand.
+            if (!source.IsUserAccessing && source.Usable(user, from, range, rules)) nearby.Add(source);
+        }
+        if (rules.Vehicles) AddEntities(world, from, range, user, rules);
+        return nearby;
+    }
+
+    private static readonly List<KCFC_Source> scratch = new List<KCFC_Source>();
+    private static readonly List<Entity> areaEntities = new List<Entity>();
+
+    // Every block container with its block inside the rectangle (inclusive),
+    // unfiltered, as this machine holds it. Unloaded chunks are skipped.
+    public static void BlockSourcesIn(World world, int minX, int minZ, int maxX, int maxZ, List<KCFC_Source> into)
+    {
+        for (int cx = World.toChunkXZ(minX); cx <= World.toChunkXZ(maxX); cx++)
+        {
+            for (int cz = World.toChunkXZ(minZ); cz <= World.toChunkXZ(maxZ); cz++)
             {
                 if (!(world.GetChunkSync(cx, cz) is Chunk chunk)) continue;
                 List<TileEntity> entities = chunk.GetTileEntities()?.list;
                 if (entities == null) continue;
                 for (int i = 0; i < entities.Count; i++)
                 {
-                    KCFC_Source source = KCFC_Source.For(entities[i]);
-                    // The container open in front of you is yours to manage by hand.
-                    if (source == null || source.IsUserAccessing) continue;
-                    if (source.Usable(user, from, range, rules)) nearby.Add(source);
+                    if (!(KCFC_Source.For(entities[i]) is KCFC_BlockSource source)) continue;
+                    Vector3i pos = source.Pos;
+                    if (pos.x >= minX && pos.x <= maxX && pos.z >= minZ && pos.z <= maxZ) into.Add(source);
                 }
             }
         }
-        if (rules.Vehicles) AddEntities(world, from, range, user, rules);
-        return nearby;
+    }
+
+    // Server: the containers in a square of blocks around `center` (any
+    // height) that `user` may use, live, nearest the centre first. Nobody's
+    // open window is skipped: the server's copy is the real one, and takes
+    // from it are forwarded to whoever has it open.
+    public static List<KCFC_Source> InArea(World world, Vector3i center, int halfSize, PlatformUserIdentifierAbs user, KCFC_Config rules)
+    {
+        List<KCFC_Source> sources = new List<KCFC_Source>();
+        int minX = center.x - halfSize, maxX = center.x + halfSize, minZ = center.z - halfSize, maxZ = center.z + halfSize;
+        BlockSourcesIn(world, minX, minZ, maxX, maxZ, sources);
+        sources.RemoveAll(source => !source.Permits(user, rules));
+        if (rules.Vehicles)
+        {
+            areaEntities.Clear();
+            Bounds bounds = new Bounds(center.ToVector3(), new Vector3(halfSize * 2 + 1, 512f, halfSize * 2 + 1));
+            world.GetEntitiesInBounds(typeof(EntityVehicle), bounds, areaEntities);
+            world.GetEntitiesInBounds(typeof(EntityDrone), bounds, areaEntities);
+            foreach (Entity entity in areaEntities)
+            {
+                KCFC_EntitySource live = KCFC_EntitySource.Live(entity);
+                if (live != null && live.Permits(user, rules)) sources.Add(live);
+            }
+            areaEntities.Clear();
+        }
+        Vector3 from = center.ToVector3();
+        sources.Sort((a, b) => (a.Center - from).sqrMagnitude.CompareTo((b.Center - from).sqrMagnitude));
+        return sources;
+    }
+
+    // Totals per item type over `sources`.
+    public static int CountIn(List<KCFC_Source> sources, int itemType)
+    {
+        int total = 0;
+        foreach (KCFC_Source source in sources)
+        {
+            for (int i = 0; i < source.Length; i++)
+            {
+                ItemStack stack = source.Slot(i);
+                if (Eligible(stack) && stack.itemValue.type == itemType) total += stack.count;
+            }
+        }
+        return total;
     }
 
     // Forces the next Nearby() to rebuild, e.g. when the server reports new

@@ -78,6 +78,11 @@ using UnityEngine;
 // client's own range. Repairs, reloads, refuels and purchases send the same
 // take lines as crafting, so a server that doesn't mention them allows them.
 //
+// Claim repair (KCFC_ClaimRepair.cs) repairs a whole land claim on the
+// server, paying from the claim's containers, from a "Repair" command on the
+// claim block or `kcfc repair`. The `kcfc` console command (KCFC_Command.cs)
+// also lists what crafting can use and why anything in range is skipped.
+//
 // Like KitsuneSharedMagazines, all of this rides vanilla packages (no custom
 // NetPackage IDs), and the kcfc_ lines are swallowed before the console sees
 // them. A client with the mod on a server without it just crafts from the
@@ -119,12 +124,18 @@ public class KCFC_Config
     // A restriction, not a permission: block containers count only inside a
     // claim you own or are allied to. Either side asking for it is enough.
     public bool ClaimOnly = false;
+    // Repairing a land claim from its containers (KCFC_ClaimRepair). The
+    // server does the repair, so a server that doesn't mention it hasn't
+    // got it.
+    public bool ClaimRepair = true;
+    public bool ClaimRepairBloodMoon = false;
 
     // What a server without a config line (0.1.0) supports.
     public static KCFC_Config Legacy(int range)
     {
         return new KCFC_Config { Range = range, Workstations = false, Collectors = false, Claimed = false, Vehicles = false,
-            Repair = true, Reload = true, Refuel = true, Trader = true, Party = false, ClaimOnly = false };
+            Repair = true, Reload = true, Refuel = true, Trader = true, Party = false, ClaimOnly = false,
+            ClaimRepair = false, ClaimRepairBloodMoon = false };
     }
 
     public KCFC_Config Within(KCFC_Config other)
@@ -142,6 +153,8 @@ public class KCFC_Config
             Trader = Trader && other.Trader,
             Party = Party && other.Party,
             ClaimOnly = ClaimOnly || other.ClaimOnly,
+            ClaimRepair = ClaimRepair && other.ClaimRepair,
+            ClaimRepairBloodMoon = ClaimRepairBloodMoon && other.ClaimRepairBloodMoon,
         };
     }
 
@@ -183,6 +196,12 @@ public class KCFC_Config
             case "claimonly":
                 ClaimOnly = ParseBool(value, ClaimOnly);
                 return true;
+            case "claimrepair":
+                ClaimRepair = ParseBool(value, ClaimRepair);
+                return true;
+            case "claimrepairbloodmoon":
+                ClaimRepairBloodMoon = ParseBool(value, ClaimRepairBloodMoon);
+                return true;
         }
         return false;
     }
@@ -192,7 +211,8 @@ public class KCFC_Config
         return "range=" + Range + " workstations=" + (Workstations ? 1 : 0) + " collectors=" + (Collectors ? 1 : 0)
             + " claimed=" + (Claimed ? 1 : 0) + " vehicles=" + (Vehicles ? 1 : 0) + " repair=" + (Repair ? 1 : 0)
             + " reload=" + (Reload ? 1 : 0) + " refuel=" + (Refuel ? 1 : 0) + " trader=" + (Trader ? 1 : 0)
-            + " party=" + (Party ? 1 : 0) + " claimonly=" + (ClaimOnly ? 1 : 0);
+            + " party=" + (Party ? 1 : 0) + " claimonly=" + (ClaimOnly ? 1 : 0)
+            + " claimrepair=" + (ClaimRepair ? 1 : 0) + " claimrepairbloodmoon=" + (ClaimRepairBloodMoon ? 1 : 0);
     }
 
     // Reads the "key=value key=value" part of a kcfc_config line. Unknown

@@ -31,9 +31,13 @@ public abstract class KCFC_Source
     // The stack in slot i, or null if crafting must leave that slot alone.
     public abstract ItemStack Slot(int i);
 
+    // What it is, for kcfc status.
+    public abstract string Name { get; }
+
     // The type-specific checks: ownership, locks, labels, which sources the
-    // rules allow. Distance is checked in Usable.
-    protected abstract bool Allowed(PlatformUserIdentifierAbs user, KCFC_Config rules);
+    // rules allow. Null if they pass, else why not (for kcfc status).
+    // Distance is checked in Refusal below.
+    protected abstract string Refusal(PlatformUserIdentifierAbs user, KCFC_Config rules);
 
     // Takes up to `count` of a plain item. `sync` sends the container out to
     // everyone (the server's own copy); without it only this copy changes.
@@ -51,9 +55,18 @@ public abstract class KCFC_Source
     // copy before it takes anything.
     public bool Usable(PlatformUserIdentifierAbs user, Vector3 from, float range, KCFC_Config rules)
     {
-        if (!Allowed(user, rules)) return false;
-        return (Center - from).sqrMagnitude <= range * range;
+        return Refusal(user, from, range, rules) == null;
     }
+
+    public string Refusal(PlatformUserIdentifierAbs user, Vector3 from, float range, KCFC_Config rules)
+    {
+        string refusal = Refusal(user, rules);
+        if (refusal != null) return refusal;
+        return (Center - from).sqrMagnitude <= range * range ? null : "out of range";
+    }
+
+    // Everything but distance, for a container picked by area instead.
+    public bool Permits(PlatformUserIdentifierAbs user, KCFC_Config rules) => Refusal(user, rules) == null;
 
     public static KCFC_Source For(TileEntity te)
     {
@@ -158,6 +171,8 @@ public abstract class KCFC_BlockSource : KCFC_Source
 
     public override Vector3 Center => Pos.ToVector3() + new Vector3(0.5f, 0.5f, 0.5f);
 
+    public override string Name => GameManager.Instance?.World?.GetBlock(Pos).Block?.GetLocalizedBlockName() ?? "block";
+
     public override string TakeLine(int itemType, int count)
     {
         Vector3i pos = Pos;
@@ -187,29 +202,30 @@ public class KCFC_StorageSource : KCFC_BlockSource
         return grid.IsLocked(i) ? null : grid.GetItem(i);
     }
 
-    protected override bool Allowed(PlatformUserIdentifierAbs user, KCFC_Config rules)
+    protected override string Refusal(PlatformUserIdentifierAbs user, KCFC_Config rules)
     {
         TileEntityComposite parent = storage.Parent;
-        if (parent == null) return false;
+        if (parent == null) return "not loaded";
 
         TEFeatureLockable lockable = storage.lockFeature;
         if (lockable != null && lockable.IsLocked() && (user == null || !lockable.IsUserAllowed(user))
             && !(rules.Party && InParty(user, lockable.GetOwner())))
         {
-            return false;
+            return "locked";
         }
 
         string label = parent.GetFeature<TEFeatureSignable>()?.displayText;
-        if (!string.IsNullOrEmpty(label) && label.IndexOf(OptOutLabel, StringComparison.OrdinalIgnoreCase) >= 0) return false;
+        if (!string.IsNullOrEmpty(label) && label.IndexOf(OptOutLabel, StringComparison.OrdinalIgnoreCase) >= 0) return "labelled nocraft";
 
-        if (parent.PlayerPlaced) return !rules.ClaimOnly || InClaim(user, Pos);
+        if (parent.PlayerPlaced) return !rules.ClaimOnly || InClaim(user, Pos) ? null : "outside your claim (claimonly)";
 
         // World loot. Untouched containers haven't rolled their loot yet, and
         // ones that vanish on close (trash piles, bags) aren't storage.
-        if (!rules.Claimed || !storage.ItemGrid.Touched) return false;
+        if (!rules.Claimed) return "world loot (claimed is off)";
+        if (!storage.ItemGrid.Touched) return "world loot nobody has opened";
         LootContainer loot = string.IsNullOrEmpty(storage.lootListName) ? null : LootContainer.GetLootContainer(storage.lootListName);
-        if (loot != null && loot.destroyOnClose != LootContainer.DestroyOnClose.False) return false;
-        return InClaim(user, Pos);
+        if (loot != null && loot.destroyOnClose != LootContainer.DestroyOnClose.False) return "vanishes when closed";
+        return InClaim(user, Pos) ? null : "world loot outside your claim";
     }
 
     // The grid's change event is what sends a box out, so syncing is raising it.
@@ -243,11 +259,13 @@ public class KCFC_WorkstationSource : KCFC_BlockSource
 
     public override ItemStack Slot(int i) => workstation.Output[i];
 
-    protected override bool Allowed(PlatformUserIdentifierAbs user, KCFC_Config rules)
+    protected override string Refusal(PlatformUserIdentifierAbs user, KCFC_Config rules)
     {
-        if (!rules.Workstations) return false;
-        if (rules.ClaimOnly) return (workstation.IsPlayerPlaced || rules.Claimed) && InClaim(user, Pos);
-        return workstation.IsPlayerPlaced || (rules.Claimed && InClaim(user, Pos));
+        if (!rules.Workstations) return "workstations is off";
+        if (!workstation.IsPlayerPlaced && !rules.Claimed) return "world workstation (claimed is off)";
+        if (InClaim(user, Pos)) return null;
+        if (!workstation.IsPlayerPlaced) return "world workstation outside your claim";
+        return rules.ClaimOnly ? "outside your claim (claimonly)" : null;
     }
 
     public override int TakeFrom(int itemType, int count, bool sync)
@@ -306,9 +324,10 @@ public class KCFC_CollectorSource : KCFC_BlockSource
 
     public override ItemStack Slot(int i) => Skip(i) ? null : collector.Items[i];
 
-    protected override bool Allowed(PlatformUserIdentifierAbs user, KCFC_Config rules)
+    protected override string Refusal(PlatformUserIdentifierAbs user, KCFC_Config rules)
     {
-        return rules.Collectors && (!rules.ClaimOnly || InClaim(user, Pos));
+        if (!rules.Collectors) return "collectors is off";
+        return !rules.ClaimOnly || InClaim(user, Pos) ? null : "outside your claim (claimonly)";
     }
 
     public override int TakeFrom(int itemType, int count, bool sync)
@@ -362,6 +381,7 @@ public class KCFC_EntitySource : KCFC_Source
 
     public int EntityId => entity.entityId;
     public override Vector3 Center => entity.position;
+    public override string Name => Localization.Get((entity as EntityVehicle)?.LocalizedEntityName ?? (entity as EntityAlive)?.EntityName ?? "vehicle");
     public override ILockTarget LockTarget => entity;
     // Storage and the service window both lock channel 0.
     public override bool IsUserAccessing => LockManager.Instance.IsLockedByLocalPlayer(entity, 0);
@@ -382,23 +402,24 @@ public class KCFC_EntitySource : KCFC_Source
 
     // Vanilla's own storage check: anyone may open it unless it is locked and
     // they are neither the owner nor on its allowed list.
-    protected override bool Allowed(PlatformUserIdentifierAbs user, KCFC_Config rules)
+    protected override string Refusal(PlatformUserIdentifierAbs user, KCFC_Config rules)
     {
-        if (!rules.Vehicles) return false;
+        if (!rules.Vehicles) return "vehicles is off";
+        bool allowed = false;
         if (entity is EntityVehicle vehicle)
         {
             // Not IsUserAllowed: it asks about the local player, which on a
             // dedicated server is nobody.
-            return !vehicle.isLocked
+            allowed = !vehicle.isLocked
                 || (user != null && (vehicle.IsOwner(user) || vehicle.vehicle.AllowedUsers.Contains(user)))
                 || (rules.Party && InParty(user, vehicle.vehicle.OwnerId));
         }
-        if (entity is EntityDrone drone)
+        else if (entity is EntityDrone drone)
         {
-            return !drone.IsLocked() || (user != null && drone.IsUserAllowed(user))
+            allowed = !drone.IsLocked() || (user != null && drone.IsUserAllowed(user))
                 || (rules.Party && InParty(user, drone.OwnerID));
         }
-        return false;
+        return allowed ? null : "locked";
     }
 
     // There is nothing to send: a client's bag edit goes to the server, and
